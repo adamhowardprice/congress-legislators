@@ -36,7 +36,7 @@ def run():
 		if "class" in term: del term["class"]
 
 		url = "http://clerk.house.gov/member_info/mem_contact_info.aspx?statdis=%s%02d" % (term["state"], term["district"])
-		cache = "legislators/house/%s%02d.html" % (term["state"], term["district"])
+		cache = "legislators/clerk_house/%s%02d.html" % (term["state"], term["district"])
 		try:
 			# the meta tag say it's iso-8859-1, but... names are actually in utf8...
 			body = download(url, cache, force)
