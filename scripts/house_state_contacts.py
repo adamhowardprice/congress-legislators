@@ -8,6 +8,11 @@ from datetime import datetime
 import utils
 from utils import download, load_data, save_data, parse_date
 
+def phone_format(phone_number):
+	clean_phone_number = re.sub('[^0-9]+', '', phone_number)
+	formatted_phone_number = re.sub("(\d)(?=(\d{3})+(?!\d))", r"\1-", "%d" % int(clean_phone_number[:-1])) + clean_phone_number[-1]
+	return formatted_phone_number
+
 def run():
 	today = datetime.now().date()
 
@@ -17,7 +22,11 @@ def run():
 
 	y = load_data("legislators-current.yaml")
 
-	for moc in y:
+	cong_to_phones = {}
+	missing = []
+
+	for idx, moc in enumerate(y):
+		print(idx)
 		try:
 			term = moc["terms"][-1]
 		except IndexError:
@@ -35,64 +44,51 @@ def run():
 
 		if "class" in term: del term["class"]
 
-		url = term["url"]
 		cong_code = "%s%02d" % (term["state"], term["district"])
-		cache = "legislators/subdomain_house/%s.html" % cong_code
+		print(cong_code)
+
+		if "url" not in term:
+			missing.append(cong_code)
+			continue
+
+		url = term["url"]
+		cache = "legislators/subdomain_house_contact/%s.html" % cong_code
 		try:
 			# the meta tag say it's iso-8859-1, but... names are actually in utf8...
 			body = download(url, cache, force)
 			dom = lxml.html.parse(io.StringIO(body)).getroot()
-		except lxml.etree.XMLSyntaxError:
+		except:
 			print("Error parsing: ", url)
+			missing.append(cong_code)
 			continue
 
-		print(cong_code)
-		# print(body)
+		if dom is None:
+			missing.append(cong_code)
+			continue
 
-		thoroughfare_dom = dom.cssselect(".office-info .thoroughfare")
-		locality_dom = dom.cssselect(".office-info .locality")
-		state_dom = dom.cssselect(".office-info .state")
-		postal_dom = dom.cssselect(".office-info .postal-code")
-		phone_fax_dom = dom.cssselect(".office-info p")
+		phones = []
+		phone_doms = dom.cssselect("*:contains(Phone\:)")
+		for p in phone_doms:
+			phone_number_string = str(p.text_content())
+			phone_matches = re.search("(\(\d{3}\) \d{3}-\d{4}|\d{3}\.\d{3}\.\d{4}|\d{3}-\d{3}-\d{4})", phone_number_string)
+			if phone_matches is None:
+				missing.append(cong_code)
+				continue
+			phone_number = phone_format(phone_matches.group(0))
+			if phone_number not in phones:
+				phones.append(phone_number)
+			if len(phones) == 0:
+				missing.append(cong_code)
+				continue
 
-		dc_thoroughfare = str(thoroughfare_dom[0].text_content()) if len(thoroughfare_dom) > 0 else ""
-		dc_locality = str(locality_dom[0].text_content()) if len(locality_dom) > 0 else ""
-		dc_state = str(state_dom[0].text_content()) if len(state_dom) > 0 else ""
-		dc_postal = str(postal_dom[0].text_content()) if len(postal_dom) > 0 else ""
-		dc_phone_fax = str(phone_fax_dom[0].text_content()) if len(phone_fax_dom) > 0 else ""
+			cong_to_phones[cong_code] = phones
 
-		state_thoroughfare = str(thoroughfare_dom[1].text_content()) if len(thoroughfare_dom) > 1 else ""
-		state_locality = str(locality_dom[1].text_content()) if len(locality_dom) > 1 else ""
-		state_state = str(state_dom[1].text_content()) if len(state_dom) > 1 else ""
-		state_postal = str(postal_dom[1].text_content()) if len(postal_dom) > 1 else ""
-		state_phone_fax = str(phone_fax_dom[1].text_content()) if len(phone_fax_dom) > 1 else ""
+		print(phones)
 
-		dc_phone_m = re.search(r"(\(\d\d\d\) \d\d\d-\d\d\d\d)", dc_phone_fax)
-		state_phone_m = re.search(r"(\(\d\d\d\) \d\d\d-\d\d\d\d)", state_phone_fax)
-		dc_phone = dc_phone_m.group(0) if dc_phone_m is not None else ""
-		state_phone = state_phone_m.group(0) if state_phone_m is not None else ""
-
-		dc_address = "%s %s %s %s" % (dc_thoroughfare, dc_locality, dc_state, dc_postal)
-		state_address = "%s %s %s %s" % (state_thoroughfare, state_locality, state_state, state_postal)
-
-		print("name:")
-		print(moc["name"]["official_full"])
-		print("dc address:")
-		print(dc_address)
-		print("dc_phone:")
-		print(dc_phone)
-		print("state_address:")
-		print(state_address)
-		print("state_phone:")
-		print(state_phone)
-		print("\n")
-
-		term["dc_address"] = dc_address
-		term["state_address"] = state_address
-		term["dc_phone"] = dc_phone
-		term["state_phone"] = state_phone
-
-	save_data(y, "legislators-current.yaml")
+	# save_data(y, "legislators-current.yaml")
+	print("Got this many congress codes phone #s: {}".format(str(len(cong_to_phones))))
+	print("Got these results: {}".format(cong_to_phones))
+	print("Missing these congress codes: {}".format(missing))
 
 if __name__ == '__main__':
   run()
